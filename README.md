@@ -12,13 +12,7 @@
 
 ### 安装
 
-通过 [skills.sh](https://skills.sh/camsong/youdao-wordbook-skill/youdao-wordbook) 安装指定 Skill（推荐）：
-
-```bash
-npx skills add https://github.com/camsong/youdao-wordbook-skill --skill youdao-wordbook
-```
-
-也可以使用 GitHub 仓库简写：
+通过 [skills.sh](https://skills.sh/camsong/youdao-wordbook-skill/youdao-wordbook) 安装：
 
 ```bash
 npx skills add camsong/youdao-wordbook-skill
@@ -111,13 +105,7 @@ It uses Youdao's read-only wordbook list API with a locally supplied authenticat
 
 ### Install
 
-Install the specific Skill through [skills.sh](https://skills.sh/camsong/youdao-wordbook-skill/youdao-wordbook) (recommended):
-
-```bash
-npx skills add https://github.com/camsong/youdao-wordbook-skill --skill youdao-wordbook
-```
-
-You can also use the GitHub repository shorthand:
+Install through [skills.sh](https://skills.sh/camsong/youdao-wordbook-skill/youdao-wordbook):
 
 ```bash
 npx skills add camsong/youdao-wordbook-skill
