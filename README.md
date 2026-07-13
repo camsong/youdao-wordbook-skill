@@ -24,10 +24,10 @@ npx skills add camsong/youdao-wordbook-skill
 
 ### 包含内容
 
-- `SKILL.md`：Agent 工作流程与安全规则。
-- `scripts/export_youdao_wordbook.py`：仅使用 Python 标准库的导出脚本。
-- `references/api.md`：有道单词本只读接口说明。
-- `agents/openai.yaml`：Codex UI 元数据。
+- `skills/youdao-wordbook/SKILL.md`：Agent 工作流程与安全规则。
+- `skills/youdao-wordbook/scripts/export_youdao_wordbook.py`：仅使用 Python 标准库的导出脚本。
+- `skills/youdao-wordbook/references/api.md`：有道单词本只读接口说明。
+- `skills/youdao-wordbook/agents/openai.yaml`：Codex UI 元数据。
 
 ### 登录认证
 
@@ -40,7 +40,7 @@ export YOUDAO_COOKIE='DICT_...=...; OUTFOX_SEARCH_USER_ID=...'
 也可以读取本地 Cookie 文件：
 
 ```bash
-python scripts/export_youdao_wordbook.py \
+python skills/youdao-wordbook/scripts/export_youdao_wordbook.py \
   --cookie-file "$HOME/Downloads/youdao-cookies.txt" \
   --format jsonl \
   --output "$HOME/Documents/youdao-wordbook/youdao-wordbook.jsonl"
@@ -59,7 +59,7 @@ python scripts/export_youdao_wordbook.py \
 导出 CSV：
 
 ```bash
-python scripts/export_youdao_wordbook.py \
+python skills/youdao-wordbook/scripts/export_youdao_wordbook.py \
   --format csv \
   --output "$HOME/Documents/youdao-wordbook/youdao-wordbook.csv"
 ```
@@ -67,7 +67,7 @@ python scripts/export_youdao_wordbook.py \
 导出保留原始审计数据的 JSONL：
 
 ```bash
-python scripts/export_youdao_wordbook.py \
+python skills/youdao-wordbook/scripts/export_youdao_wordbook.py \
   --format jsonl \
   --output "$HOME/Documents/youdao-wordbook/youdao-wordbook.jsonl"
 ```
@@ -75,7 +75,7 @@ python scripts/export_youdao_wordbook.py \
 导出 Markdown 复习清单：
 
 ```bash
-python scripts/export_youdao_wordbook.py \
+python skills/youdao-wordbook/scripts/export_youdao_wordbook.py \
   --format md \
   --output "$HOME/Documents/youdao-wordbook/review.md"
 ```
