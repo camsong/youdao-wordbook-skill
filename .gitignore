@@ -1,0 +1,25 @@
+# Secrets and local auth
+.env
+.env.*
+*.env
+*cookie*
+*cookies*
+*storage-state*
+*storage_state*
+
+# Exported personal data
+youdao-wordbook.*
+review.md
+exports/
+out/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
