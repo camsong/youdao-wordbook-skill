@@ -1,6 +1,6 @@
 # Youdao Wordbook Skill / 有道单词本 Skill
 
-[![skills.sh](https://skills.sh/b/camsong/youdao-wordbook-skill)](https://skills.sh/camsong/youdao-wordbook-skill)
+[![skills.sh](https://skills.sh/b/camsong/youdao-wordbook-skill)](https://skills.sh/camsong/youdao-wordbook-skill/youdao-wordbook)
 
 [中文](#中文) | [English](#english)
 
@@ -11,6 +11,14 @@
 该 Skill 仅调用有道单词本的只读列表接口，并使用用户在本地提供的登录 Cookie。它不会添加、删除或修改单词。
 
 ### 安装
+
+通过 [skills.sh](https://skills.sh/camsong/youdao-wordbook-skill/youdao-wordbook) 安装指定 Skill（推荐）：
+
+```bash
+npx skills add https://github.com/camsong/youdao-wordbook-skill --skill youdao-wordbook
+```
+
+也可以使用 GitHub 仓库简写：
 
 ```bash
 npx skills add camsong/youdao-wordbook-skill
@@ -102,6 +110,14 @@ An Agent Skill for exporting a logged-in NetEase Youdao wordbook into review-fri
 It uses Youdao's read-only wordbook list API with a locally supplied authentication cookie. It does not add, delete, or modify words.
 
 ### Install
+
+Install the specific Skill through [skills.sh](https://skills.sh/camsong/youdao-wordbook-skill/youdao-wordbook) (recommended):
+
+```bash
+npx skills add https://github.com/camsong/youdao-wordbook-skill --skill youdao-wordbook
+```
+
+You can also use the GitHub repository shorthand:
 
 ```bash
 npx skills add camsong/youdao-wordbook-skill
