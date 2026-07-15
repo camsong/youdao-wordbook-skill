@@ -2,8 +2,27 @@
 """Export Youdao wordbook entries for review.
 
 The script uses only Python standard-library modules. Authentication is supplied
-through an existing logged-in Cookie header, a cookie jar, or Playwright
-storage_state.json.
+through an existing logged-in Cookie header, a cookie jar, Playwright
+storage_state.json, or a validated cookie cached under the skill.
+
+Cookie lifecycle
+----------------
+1. A cookie is resolved from (in order) --cookie, YOUDAO_COOKIE, --cookie-file,
+   or the cached cookie saved under the skill.
+2. If no cookie is available at all, the script exits with EXIT_NO_COOKIE (2)
+   and prints browser instructions so the agent can ask the user for one.
+3. The first API request validates the cookie. If Youdao reports the session is
+   not logged in, the script exits with EXIT_AUTH_FAILED (3), clearing any stale
+   cached cookie so the agent asks for a fresh one.
+4. When a freshly supplied cookie works, it is saved to the cache so later runs
+   need no cookie input.
+
+Exit codes
+----------
+0  success
+1  generic error
+2  no cookie supplied (ask the user to fetch one from the browser)
+3  cookie invalid or expired (ask the user for a fresh cookie)
 """
 
 from __future__ import annotations
@@ -13,6 +32,7 @@ import csv
 import datetime as dt
 import json
 import os
+import stat
 import sys
 import time
 import urllib.error
@@ -26,6 +46,38 @@ BASE_URL = "https://dict.youdao.com/wordbook"
 LIST_URL = f"{BASE_URL}/webapi/v2/word/list"
 OPTS_URL = f"{BASE_URL}/webapi/v2/opts"
 REFERER = "https://www.youdao.com/webwordbook/wordlist"
+
+SKILL_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_COOKIE_STORE = SKILL_DIR / ".youdao_cookie.json"
+
+EXIT_OK = 0
+EXIT_ERROR = 1
+EXIT_NO_COOKIE = 2
+EXIT_AUTH_FAILED = 3
+
+BROWSER_COOKIE_HELP = """\
+No saved Youdao login was found. Get a fresh cookie from a logged-in browser:
+
+  1. Open https://www.youdao.com/webwordbook/wordlist and make sure you are
+     logged in (your words are visible).
+  2. Open DevTools (F12 / Cmd+Option+I) -> Network tab, then refresh the page.
+  3. Click any request to dict.youdao.com, find Request Headers -> Cookie, and
+     copy the entire Cookie value.
+  4. Hand that Cookie string back so it can be saved for future runs.
+
+The cookie must include DICT_SESS and DICT_LOGIN, or the session is not valid.\
+"""
+
+REAUTH_COOKIE_HELP = """\
+The saved Youdao cookie is invalid or expired (Youdao says you are not logged
+in). Fetch a fresh cookie the same way:
+
+  1. Open https://www.youdao.com/webwordbook/wordlist logged in.
+  2. DevTools -> Network -> refresh -> click a dict.youdao.com request.
+  3. Copy the full Request Headers -> Cookie value (needs DICT_SESS + DICT_LOGIN).
+  4. Provide it so it can replace the stale cookie.\
+"""
+
 TIME_KEYS = (
     "createTime",
     "createdTime",
@@ -56,10 +108,32 @@ class YoudaoError(RuntimeError):
     pass
 
 
+class YoudaoAuthError(YoudaoError):
+    """Raised when Youdao rejects the cookie as not logged in / expired."""
+
+
+class NoCookieError(YoudaoError):
+    """Raised when no cookie could be resolved from any source."""
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Export logged-in Youdao wordbook entries.")
     parser.add_argument("--cookie", help="Raw Cookie header. Defaults to YOUDAO_COOKIE.")
     parser.add_argument("--cookie-file", help="Cookie string, Netscape cookie jar, or Playwright storage_state.json.")
+    parser.add_argument(
+        "--cookie-store",
+        help=f"Where to cache a validated cookie. Defaults to {DEFAULT_COOKIE_STORE}.",
+    )
+    parser.add_argument(
+        "--no-save-cookie",
+        action="store_true",
+        help="Do not cache a freshly supplied cookie after it validates.",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Validate (and cache) the cookie, then report status without exporting.",
+    )
     parser.add_argument("--format", choices=("jsonl", "csv", "md"), default="jsonl")
     parser.add_argument("--output", help="Output file. Defaults to stdout.")
     parser.add_argument("--limit", type=int, default=100, help="Page size for the API.")
@@ -72,14 +146,29 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_cookie(args: argparse.Namespace) -> str:
+def cookie_store_path(args: argparse.Namespace) -> Path:
+    if args.cookie_store:
+        return Path(args.cookie_store).expanduser()
+    return DEFAULT_COOKIE_STORE
+
+
+def resolve_cookie(args: argparse.Namespace) -> tuple[str, str]:
+    """Return (cookie, source) where source is arg/env/file/cache.
+
+    Fresh sources (arg/env/file) take priority over the cache so a newly
+    supplied cookie can replace a stale one. Raises NoCookieError if nothing is
+    available.
+    """
     if args.cookie:
-        return args.cookie.strip()
+        return args.cookie.strip(), "arg"
     if os.environ.get("YOUDAO_COOKIE"):
-        return os.environ["YOUDAO_COOKIE"].strip()
+        return os.environ["YOUDAO_COOKIE"].strip(), "env"
     if args.cookie_file:
-        return cookie_from_file(Path(args.cookie_file))
-    raise YoudaoError("No cookie supplied. Use --cookie, --cookie-file, or YOUDAO_COOKIE.")
+        return cookie_from_file(Path(args.cookie_file)), "file"
+    cached = load_cached_cookie(cookie_store_path(args))
+    if cached:
+        return cached, "cache"
+    raise NoCookieError("No cookie supplied and no cached cookie found.")
 
 
 def cookie_from_file(path: Path) -> str:
@@ -135,6 +224,46 @@ def cookie_from_netscape(text: str) -> str:
     return "; ".join(pairs)
 
 
+def load_cached_cookie(path: Path) -> str:
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return ""
+    if not raw:
+        return ""
+    if raw.startswith("{"):
+        try:
+            cookie = json.loads(raw).get("cookie", "")
+        except json.JSONDecodeError:
+            return ""
+        return str(cookie).strip()
+    return raw
+
+
+def save_cached_cookie(path: Path, cookie: str) -> bool:
+    payload = json.dumps(
+        {"cookie": cookie, "saved_at": dt.datetime.now(dt.timezone.utc).isoformat()},
+        ensure_ascii=False,
+    )
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(payload, encoding="utf-8")
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 0600, owner-only
+        return True
+    except OSError as exc:
+        print(f"warning: could not cache cookie at {path}: {exc}", file=sys.stderr)
+        return False
+
+
+def clear_cached_cookie(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        print(f"warning: could not remove stale cookie at {path}: {exc}", file=sys.stderr)
+
+
 def request_json(url: str, cookie: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     if params:
         query = urllib.parse.urlencode({k: v for k, v in params.items() if v != ""})
@@ -153,6 +282,8 @@ def request_json(url: str, cookie: str, params: dict[str, Any] | None = None) ->
             body = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
+        if exc.code in (401, 403):
+            raise YoudaoAuthError(f"HTTP {exc.code} from Youdao: {body[:200]}") from exc
         raise YoudaoError(f"HTTP {exc.code} from Youdao: {body[:300]}") from exc
     except urllib.error.URLError as exc:
         raise YoudaoError(f"Failed to reach Youdao: {exc}") from exc
@@ -165,8 +296,21 @@ def request_json(url: str, cookie: str, params: dict[str, Any] | None = None) ->
     code = data.get("code")
     if code not in (0, "0", None):
         msg = data.get("msg") or data.get("message") or "unknown error"
+        if str(code) == "401" or "未登录" in str(msg) or "登录" in str(msg):
+            raise YoudaoAuthError(f"Youdao says not logged in (code={code}): {msg}")
         raise YoudaoError(f"Youdao API returned code={code}: {msg}")
     return data
+
+
+def validate_cookie(cookie: str) -> int:
+    """Probe the list API with a tiny request. Returns the reported total.
+
+    Raises YoudaoAuthError if the session is not logged in.
+    """
+    data = request_json(LIST_URL, cookie, {"limit": 1, "offset": 0, "sort": "time"})
+    payload = data.get("data") or {}
+    total_value = payload.get("total")
+    return int(total_value) if str(total_value).isdigit() else 0
 
 
 def export_words(args: argparse.Namespace, cookie: str) -> list[dict[str, Any]]:
@@ -340,19 +484,63 @@ def escape_md(text: str) -> str:
     return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
 
 
-def main() -> int:
-    args = parse_args()
+def run(args: argparse.Namespace) -> int:
+    store = cookie_store_path(args)
+
     try:
-        cookie = load_cookie(args)
-        records = export_words(args, cookie)
-        write_records(records, args.format, args.output)
+        cookie, source = resolve_cookie(args)
+    except NoCookieError:
+        print(BROWSER_COOKIE_HELP, file=sys.stderr)
+        return EXIT_NO_COOKIE
     except YoudaoError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        return 1
+        return EXIT_ERROR
+
+    is_fresh = source != "cache"
+    should_save = is_fresh and not args.no_save_cookie
+
+    # --check: validate (and cache) the cookie, then stop.
+    if args.check:
+        try:
+            total = validate_cookie(cookie)
+        except YoudaoAuthError:
+            if source == "cache":
+                clear_cached_cookie(store)
+            print(REAUTH_COOKIE_HELP, file=sys.stderr)
+            return EXIT_AUTH_FAILED
+        except YoudaoError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return EXIT_ERROR
+        if should_save and save_cached_cookie(store, cookie):
+            print(f"cookie valid ({total} words); saved to {store}", file=sys.stderr)
+        else:
+            print(f"cookie valid ({total} words); source={source}", file=sys.stderr)
+        return EXIT_OK
+
+    # Normal export. The first request doubles as cookie validation.
+    try:
+        records = export_words(args, cookie)
+    except YoudaoAuthError:
+        if source == "cache":
+            clear_cached_cookie(store)
+        print(REAUTH_COOKIE_HELP, file=sys.stderr)
+        return EXIT_AUTH_FAILED
+    except YoudaoError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+
+    write_records(records, args.format, args.output)
+
+    if should_save:
+        save_cached_cookie(store, cookie)
 
     destination = args.output or "stdout"
     print(f"exported {len(records)} records to {destination}", file=sys.stderr)
-    return 0
+    return EXIT_OK
+
+
+def main() -> int:
+    return run(parse_args())
 
 
 if __name__ == "__main__":

@@ -31,7 +31,27 @@ npx skills add camsong/youdao-wordbook-skill
 
 ### 登录认证
 
-导出工具需要已登录有道账号的 Cookie。推荐通过环境变量提供：
+导出工具需要已登录有道账号的 Cookie。**首次使用**时，如果没有可用 Cookie，脚本会以退出码 `2` 打印从浏览器获取 Cookie 的步骤；提供一次有效 Cookie 后，它会被校验并缓存到 skill 目录下的 `.youdao_cookie.json`（权限 `0600`，已被 `.gitignore` 排除），之后运行**无需再输入 Cookie**。当缓存的 Cookie 过期时，脚本会以退出码 `3` 提示，并自动清除失效缓存，此时重新提供一次新的 Cookie 即可。
+
+退出码约定：
+
+| 退出码 | 含义 |
+|--------|------|
+| `0` | 成功；新提供的 Cookie 已校验并缓存 |
+| `2` | 无可用 Cookie（首次使用）——需要从浏览器获取 |
+| `3` | Cookie 无效或过期——需要提供新的 Cookie |
+| `1` | 其他错误 |
+
+从浏览器获取 Cookie：打开 `https://www.youdao.com/webwordbook/wordlist`（确保已登录）→ DevTools（F12）→ Network → 刷新 → 点击任意 `dict.youdao.com` 请求 → 复制 Request Headers 中完整的 Cookie 值（须包含 `DICT_SESS` 与 `DICT_LOGIN`）。
+
+首次提供 Cookie（只校验并缓存，不导出）：
+
+```bash
+python skills/youdao-wordbook/scripts/export_youdao_wordbook.py \
+  --check --cookie 'DICT_SESS=...; DICT_LOGIN=...'
+```
+
+Cookie 也可以通过环境变量提供：
 
 ```bash
 export YOUDAO_COOKIE='DICT_...=...; OUTFOX_SEARCH_USER_ID=...'
@@ -117,7 +137,11 @@ After installation, ask your agent to use the `youdao-wordbook` Skill, for examp
 
 ### Authentication
 
-Provide a logged-in Youdao cookie through the `YOUDAO_COOKIE` environment variable or a local cookie file. Raw HTTP Cookie strings, Netscape/curl cookie jars, and Playwright `storage_state.json` files are supported. See the commands in the Chinese section above.
+On **first use**, if no cookie is available the script exits with code `2` and prints browser steps for fetching one. After you supply a valid cookie once, it is validated and cached under the skill at `.youdao_cookie.json` (`0600`, git-ignored), so later runs need **no cookie input**. When the cached cookie expires, the script exits with code `3`, clears the stale cache, and you supply a fresh cookie once more.
+
+Exit codes: `0` success (fresh cookie validated + cached), `2` no cookie (fetch from browser), `3` cookie invalid/expired (supply a fresh one), `1` other error.
+
+Fetch a cookie from a logged-in browser: open `https://www.youdao.com/webwordbook/wordlist`, DevTools → Network → refresh → click a `dict.youdao.com` request → copy the full Request Headers → Cookie value (must contain `DICT_SESS` and `DICT_LOGIN`). Provide it once via `--cookie`, the `YOUDAO_COOKIE` environment variable, or a local cookie file (raw HTTP Cookie strings, Netscape/curl cookie jars, and Playwright `storage_state.json` files are supported).
 
 Never commit cookies or exported private vocabulary data. The repository's `.gitignore` excludes common cookie, environment, and export filenames, but always review `git status` before committing.
 
